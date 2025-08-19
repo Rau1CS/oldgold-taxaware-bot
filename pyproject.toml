@@ -1,0 +1,10 @@
+[project]
+name = "oldgold"
+version = "0.1.0"
+requires-python = ">=3.11"
+readme = "README.md"
+license = {text = "MIT"}
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
