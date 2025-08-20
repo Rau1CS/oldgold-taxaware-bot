@@ -17,6 +17,7 @@ from web3 import Web3
 
 from ..config import CHAIN_CONFIGS, SUBGRAPHS
 from ..logging_conf import LOGGER
+from ..utils import retry_call
 from .subgraph_client import post
 
 # Minimal ABI fragments for factory/pair contracts.  Only the methods we
@@ -71,7 +72,7 @@ def get_pair(chain: str, token_in: str, token_out: str) -> PairReserves:
     pair_c = w3.eth.contract(address=pair_addr, abi=PAIR_ABI)
     token0 = pair_c.functions.token0().call()
     token1 = pair_c.functions.token1().call()
-    r0, r1, _ = pair_c.functions.getReserves().call()
+    r0, r1, _ = retry_call(3, lambda: pair_c.functions.getReserves().call())
     if token_in.lower() == token0.lower():
         r_in, r_out = r0, r1
     else:
