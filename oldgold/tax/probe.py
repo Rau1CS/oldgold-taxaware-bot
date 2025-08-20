@@ -31,6 +31,8 @@ def main(
     w3 = Web3(Web3.HTTPProvider(cfg.rpc))
     router_c = w3.eth.contract(address=cfg.router, abi=ROUTER)
 
+    if not PK:
+        raise SystemExit("PK is not set. Put a DUST-ONLY key in .env (PK=0x...)")
     acct = Account.from_key(PK)
     me = acct.address
     weth = cfg.wrapped
@@ -59,6 +61,9 @@ def main(
     token_c = erc20(token)
     symbol = token_c.functions.symbol().call()
     decimals = token_c.functions.decimals().call()
+
+    if w3.eth.chain_id in (56, 1) and dust <= 0.0:
+        raise SystemExit("dust must be > 0")
 
     amount_in = int(dust * 10**18)  # wrapped base assumed 18 dec
 
@@ -98,56 +103,66 @@ def main(
         buy_tax_est = min(shortfall / max(expected_buy, 1), 0.99)
     honeypot_buy = got_tok == 0
 
+    weth_bal = erc20(weth).functions.balanceOf(me).call()
+    if weth_bal < int(dust * 10**18):
+        raise SystemExit("Insufficient WETH/WBNB for dust probe. Wrap first or lower DUST_BASE")
+
     sell_amt = int(got_tok * 0.8)
-    approve(token, cfg.router, sell_amt)
-
-    try:
-        expected_sell = router_c.functions.getAmountsOut(sell_amt, [token, weth]).call()[-1]
-    except Exception:  # pragma: no cover - network dependent
+    if sell_amt == 0:
+        honeypot_sell = True
+        got_weth = 0
+        rcpt_sell = None
         expected_sell = 0
+    else:
+        approve(token, cfg.router, sell_amt)
+        try:
+            expected_sell = router_c.functions.getAmountsOut(sell_amt, [token, weth]).call()[-1]
+        except Exception:
+            expected_sell = 0
 
-    bal_weth_before = erc20(weth).functions.balanceOf(me).call()
-    nonce += 1
-    tx_sell = router_c.functions.swapExactTokensForETHSupportingFeeOnTransferTokens(
-        sell_amt, 0, [token, weth], me, now_deadline(3)
-    ).build_transaction(
-        {
-            "from": me,
-            "nonce": nonce,
-            "maxFeePerGas": w3.to_wei(float(os.getenv("MAX_FEE_GWEI", "15")), "gwei"),
-            "maxPriorityFeePerGas": w3.to_wei(
-                float(os.getenv("PRIO_FEE_GWEI", "1.5")), "gwei"
-            ),
-            "gas": 350_000,
-        }
-    )
-    signed_sell = w3.eth.account.sign_transaction(tx_sell, PK)
-    rcpt_sell = w3.eth.wait_for_transaction_receipt(
-        w3.eth.send_raw_transaction(signed_sell.rawTransaction), timeout=180
-    )
+        bal_weth_before = erc20(weth).functions.balanceOf(me).call()
+        nonce += 1
+        tx_sell = router_c.functions.swapExactTokensForTokensSupportingFeeOnTransferTokens(
+            sell_amt, 0, [token, weth], me, now_deadline(3)
+        ).build_transaction(
+            {
+                "from": me,
+                "nonce": nonce,
+                "maxFeePerGas": w3.to_wei(float(os.getenv("MAX_FEE_GWEI", "15")), "gwei"),
+                "maxPriorityFeePerGas": w3.to_wei(
+                    float(os.getenv("PRIO_FEE_GWEI", "1.5")), "gwei"
+                ),
+                "gas": 350_000,
+            }
+        )
+        signed_sell = w3.eth.account.sign_transaction(tx_sell, PK)
+        rcpt_sell = w3.eth.wait_for_transaction_receipt(
+            w3.eth.send_raw_transaction(signed_sell.rawTransaction), timeout=180
+        )
 
-    bal_weth_after = erc20(weth).functions.balanceOf(me).call()
-    got_weth = max(bal_weth_after - bal_weth_before, 0)
+        bal_weth_after = erc20(weth).functions.balanceOf(me).call()
+        got_weth = max(bal_weth_after - bal_weth_before, 0)
+        honeypot_sell = got_weth == 0
 
     sell_tax_est = 0.0
     if expected_sell and got_weth:
         shortfall2 = max(expected_sell - got_weth, 0)
         sell_tax_est = min(shortfall2 / max(expected_sell, 1), 0.99)
-    honeypot_sell = got_weth == 0
 
     result = {
-        "token": token,
+        "token": Web3.to_checksum_address(token),
         "router": cfg.router,
-        "pair": None,
         "symbol": symbol,
         "decimals": decimals,
-        "buy_tax_est": buy_tax_est,
-        "sell_tax_est": sell_tax_est,
-        "honeypot_buy": honeypot_buy,
-        "honeypot_sell": honeypot_sell,
-        "expected_out": str(expected_buy),
-        "rcpt_buy": rcpt_buy.transactionHash.hex(),
-        "rcpt_sell": rcpt_sell.transactionHash.hex(),
+        "buy_tax_est": float(buy_tax_est),
+        "sell_tax_est": float(sell_tax_est),
+        "honeypot_buy": bool(honeypot_buy),
+        "honeypot_sell": bool(honeypot_sell),
+        "expected_buy": str(expected_buy),
+        "got_tokens": str(got_tok),
+        "got_weth": str(got_weth),
+        "tx_buy": rcpt_buy.transactionHash.hex(),
+        "tx_sell": rcpt_sell.transactionHash.hex() if not honeypot_sell else None,
     }
 
     print(json.dumps(result, indent=2))
