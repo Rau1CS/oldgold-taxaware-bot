@@ -29,6 +29,16 @@ def build_parser() -> argparse.ArgumentParser:
     sim_p.add_argument("--slip-bps", type=float, default=0.0)
     sim_p.add_argument("--grid", default="1e3,1e4")
 
+    run_p = sub.add_parser("run-one")
+    run_p.add_argument("--chain", default="bsc")
+    run_p.add_argument("--token", required=True)
+    run_p.add_argument("--base", default="WBNB")
+    run_p.add_argument("--stale-pair")
+    run_p.add_argument("--active-pair", default="auto")
+    run_p.add_argument("--fee", type=float, default=0.003)
+    run_p.add_argument("--slip-bps", type=float, default=20)
+    run_p.add_argument("--grid", default="1e3,5e3,1e4")
+
     return p
 
 
@@ -55,6 +65,19 @@ def main(argv: List[str] | None = None) -> int:
             buy_tax=args.buy_tax,
             sell_tax=args.sell_tax,
             gas_base=args.gas_base,
+            slip_bps=args.slip_bps,
+            grid=args.grid,
+        )
+    elif args.cmd == "run-one":
+        from .exec.run_one import main as run_one_main
+
+        run_one_main(
+            chain=args.chain,
+            token=args.token,
+            base=args.base,
+            stale_pair=args.stale_pair,
+            active_pair=args.active_pair,
+            fee=args.fee,
             slip_bps=args.slip_bps,
             grid=args.grid,
         )
