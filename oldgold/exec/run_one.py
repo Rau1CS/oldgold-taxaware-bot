@@ -18,6 +18,7 @@ from ..scanner.pairs import active_pool_for_token, get_pair
 from ..sim.v2_math import amount_out_v2, buy_cost_on_active_pool
 from ..sim.simulate import parse_grid
 from ..utils import save_json
+from ..data.tokens import TOKENS_BY_CHAIN
 
 APPROVE_GAS = 50_000
 SWAP_GAS = 200_000
@@ -38,6 +39,15 @@ def estimate_gas_base(chain: str) -> float:
         return 0.0
     total_units = APPROVE_GAS + 2 * SWAP_GAS
     return float(Web3.from_wei(gas_price * total_units, "ether"))
+
+
+def resolve_base_addr(chain: str, base: str) -> str:
+    if base.lower().startswith("0x"):
+        return Web3.to_checksum_address(base)
+    m = TOKENS_BY_CHAIN.get(chain, {})
+    if base.upper() in m:
+        return Web3.to_checksum_address(m[base.upper()])
+    return Web3.to_checksum_address(CHAIN_CONFIGS[chain].wrapped)
 
 
 def run_sim(
@@ -85,8 +95,7 @@ def main(
     if not token:
         raise SystemExit("token is required")
 
-    cfg = CHAIN_CONFIGS[chain]
-    base_addr = base if base.lower().startswith("0x") else cfg.wrapped
+    base_addr = resolve_base_addr(chain, base)
 
     deny_path = Path(__file__).resolve().parent.parent / "data" / "denylists.json"
     try:
@@ -105,8 +114,18 @@ def main(
         active_addr = active_pool_for_token(chain, token, base_addr) or stale.address
     else:
         active_addr = active_pair
-    active = get_pair(chain, base_addr, token)
+    active = get_pair(chain, token, base_addr)
     active.address = active_addr
+
+    from ..tax.probe import main as probe_main
+
+    tax = {}
+    try:
+        tax = probe_main(chain=chain, token=token) or {}
+    except Exception as e:  # pragma: no cover - network dependent
+        LOGGER.warning("probe failed: %s (continuing with 0%% taxes)", e)
+    buy_tax = float(tax.get("buy_tax_est", 0.0) or 0.0)
+    sell_tax = float(tax.get("sell_tax_est", 0.0) or 0.0)
 
     gas_base = estimate_gas_base(chain)
 
@@ -119,6 +138,8 @@ def main(
         slip_bps=slip_bps,
         grid=grid,
         gas_base=gas_base,
+        buy_tax=buy_tax,
+        sell_tax=sell_tax,
     )
 
     out_dir = Path("out")
