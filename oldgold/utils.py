@@ -41,3 +41,13 @@ def retry(times: int, func: Callable[[], T]) -> T:
             last_err = e
             time.sleep(0.5)
     raise last_err
+
+
+def retry_call(n: int, fn: Callable[[], T], delay: float = 0.3) -> T:
+    for i in range(n):
+        try:
+            return fn()
+        except Exception:
+            if i == n - 1:
+                raise
+            time.sleep(delay * (2**i))

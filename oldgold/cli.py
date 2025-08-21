@@ -16,6 +16,8 @@ def build_parser() -> argparse.ArgumentParser:
     probe_p.add_argument("--chain", default="bsc")
     probe_p.add_argument("--token", required=True)
     probe_p.add_argument("--dust", type=float, default=0.0002)
+    probe_p.add_argument("--dry-run", action="store_true")
+    probe_p.add_argument("--force-probe", action="store_true")
 
     sim_p = sub.add_parser("simulate")
     sim_p.add_argument("--stale-rin", type=float, required=True)
@@ -38,6 +40,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--fee", type=float, default=0.003)
     run_p.add_argument("--slip-bps", type=float, default=20)
     run_p.add_argument("--grid", default="1e3,5e3,1e4")
+    run_p.add_argument("--dry-run", action="store_true")
+    run_p.add_argument("--force-probe", action="store_true")
 
     return p
 
@@ -52,7 +56,7 @@ def main(argv: List[str] | None = None) -> int:
     elif args.cmd == "probe":
         from .tax.probe import main as probe_main
 
-        probe_main(chain=args.chain, token=args.token, dust=args.dust)
+        probe_main(chain=args.chain, token=args.token, dust=args.dust, dry_run=args.dry_run, force_probe=args.force_probe)
     elif args.cmd == "simulate":
         from .sim.simulate import main as sim_main
 
@@ -80,6 +84,8 @@ def main(argv: List[str] | None = None) -> int:
             fee=args.fee,
             slip_bps=args.slip_bps,
             grid=args.grid,
+            dry_run=args.dry_run,
+            force_probe=args.force_probe,
         )
     else:
         p.print_help()
